@@ -1,40 +1,60 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import pytz
 from datetime import datetime
+import time
 
 st.set_page_config(layout="wide")
 
-# ---------- SECTOR MAP ----------
+# ---------------- SECTOR MAP ----------------
 sector_map = {
-    "Technology": ["TCS.NS","INFY.NS","WIPRO.NS"],
-    "Banking": ["HDFCBANK.NS","ICICIBANK.NS","SBIN.NS"],
-    "Energy": ["RELIANCE.NS","ONGC.NS","BPCL.NS"]
+    "Technology": ["TCS.NS", "INFY.NS", "WIPRO.NS"],
+    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"],
+    "Energy": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS"]
 }
 
-symbols = []
-for stocks in sector_map.values():
-    symbols.extend(stocks)
+# ---------------- LIVE CLOCK (NO FLIP) ----------------
+st.markdown("""
+<div style="text-align:center">
+<h1>🚀 LIVE SECTOR DASHBOARD</h1>
+<h3 id="clock" style="color:#FFD700;"></h3>
+</div>
 
-# ---------- TIME ----------
+<script>
+function updateClock() {
+    const now = new Date();
+    const options = { 
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric', 
+        month: 'short', 
+        day: '2-digit',
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit'
+    };
+    document.getElementById("clock").innerHTML =
+        now.toLocaleString("en-IN", options) + " IST";
+}
+setInterval(updateClock, 1000);
+updateClock();
+</script>
+""", unsafe_allow_html=True)
+
+# ---------------- MINUTE SYNC LOGIC ----------------
 ist = pytz.timezone("Asia/Kolkata")
 now = datetime.now(ist)
-time_str = now.strftime("%d-%b-%Y | %H:%M IST")
 
-st.markdown(
-    f"""
-    <div style="background:black;padding:15px;text-align:center">
-        <h2 style="color:white;">🚀 LIVE SECTOR DASHBOARD</h2>
-        <h4 style="color:gold;">{time_str}</h4>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+if "last_minute" not in st.session_state:
+    st.session_state.last_minute = -1
+    st.session_state.cached_df = pd.DataFrame()
 
-# ---------- DATA ----------
-try:
+if now.minute != st.session_state.last_minute:
+
+    symbols = []
+    for stocks in sector_map.values():
+        symbols.extend(stocks)
+
     data = yf.download(
         symbols,
         period="1d",
@@ -42,51 +62,42 @@ try:
         progress=False,
         threads=False
     )
-except:
-    st.error("Data download error")
-    st.stop()
 
-if data.empty:
-    st.error("Market Data Not Available")
-    st.stop()
+    if not data.empty:
 
-if isinstance(data.columns, pd.MultiIndex):
-    close = data["Close"]
-else:
-    close = data["Close"]
+        close = data["Close"]
 
-if close.empty:
-    st.error("Market Closed")
-    st.stop()
+        # LAST CLOSED CANDLE
+        last_close = close.iloc[-2]
+        prev_close = close.iloc[-3]
 
-open_price = close.iloc[0]
-current_price = close.iloc[-1]
-day_change = ((current_price - open_price) / open_price) * 100
+        pct_change = ((last_close - prev_close) / prev_close) * 100
 
-# ---------- SECTOR CALC ----------
-results = []
+        results = []
 
-for sector, stock_list in sector_map.items():
-    valid = [s for s in stock_list if s in day_change.index]
-    if len(valid) == 0:
-        continue
+        for sector, stocks in sector_map.items():
+            sector_data = pct_change[stocks]
+            avg = sector_data.mean()
+            green = (sector_data > 0).sum()
+            red = (sector_data < 0).sum()
 
-    sector_change = day_change[valid]
-    sector_avg = sector_change.mean()
+            results.append({
+                "Sector": sector,
+                "Avg %": round(avg, 2),
+                "Green": int(green),
+                "Red": int(red)
+            })
 
-    green = (sector_change > 0).sum()
-    red = (sector_change < 0).sum()
+        df = pd.DataFrame(results).sort_values("Avg %", ascending=False)
 
-    results.append([
-        sector,
-        round(sector_avg,2),
-        green,
-        red
-    ])
+        st.session_state.cached_df = df
+        st.session_state.last_minute = now.minute
 
-df = pd.DataFrame(results, columns=["Sector","Avg %","Green","Red"])
-df = df.sort_values("Avg %", ascending=False).reset_index(drop=True)
+# ---------------- DISPLAY TABLE ----------------
+if not st.session_state.cached_df.empty:
+    st.dataframe(
+        st.session_state.cached_df,
+        use_container_width=True
+    )
 
-st.dataframe(df, use_container_width=True)
-
-st.caption("🔄 Data updates automatically on page refresh")
+st.caption("✔ Data updates automatically every new minute (last closed candle)")
