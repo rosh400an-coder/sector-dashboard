@@ -3,101 +3,70 @@ import yfinance as yf
 import pandas as pd
 import pytz
 from datetime import datetime
-import time
 
 st.set_page_config(layout="wide")
 
-# ---------------- SECTOR MAP ----------------
+# ---------------- FIXED SECTOR MAP ----------------
 sector_map = {
-    "Technology": ["TCS.NS", "INFY.NS", "WIPRO.NS"],
-    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"],
-    "Energy": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS"]
+'Industrials': ['BHEL.NS','CUMMINSIND.NS','INDIGO.NS','KPIL.NS','SUPREMEIND.NS','ARE&M.NS','CGPOWER.NS','BDL.NS','BEL.NS','KEI.NS','COCHINSHIP.NS','BLS.NS','BEML.NS','GESHIP.NS','SRF.NS','DATAPATTNS.NS','HBLENGINE.NS','SIEMENS.NS','ASHOKLEY.NS','NCC.NS','ASTRAL.NS','POLYCAB.NS','RVNL.NS','ZENTEC.NS','LT.NS','CYIENT.NS','TRITURBINE.NS','ABB.NS','DELHIVERY.NS','POWERINDIA.NS','INOXWIND.NS','TIINDIA.NS','AFCONS.NS','BLUESTARCO.NS','IRCON.NS','HAVELLS.NS','KEC.NS','JWL.NS','KAJARIACER.NS','GMRAIRPORT.NS','MAZDOCK.NS','HAL.NS','JYOTICNC.NS','NBCC.NS','IRB.NS','CONCOR.NS','ADANIPORTS.NS','SWANCORP.NS','SUZLON.NS','GRSE.NS'],
+'Financial Services': ['YESBANK.NS','ABCAPITAL.NS','SHRIRAMFIN.NS','HDFCBANK.NS','BAJAJFINSV.NS','MANAPPURAM.NS','BANDHANBNK.NS','APTUS.NS','CGCL.NS','MOTILALOFS.NS','AUBANK.NS','LICHSGFIN.NS','AADHARHFC.NS','MFSL.NS','PNB.NS','NUVAMA.NS','ICICIGI.NS','BAJAJHFL.NS','BANKINDIA.NS','POLICYBZR.NS','CHOLAFIN.NS','FEDERALBNK.NS','CANBK.NS','M&MFIN.NS','SBILIFE.NS','SBICARD.NS','PNBHOUSING.NS','INDIANB.NS','LICI.NS','LTF.NS','MCX.NS','ANGELONE.NS','POONAWALLA.NS','ANANDRATHI.NS','BANKBARODA.NS','GODIGIT.NS','MUTHOOTFIN.NS','FIVESTAR.NS','STARHEALTH.NS','JIOFIN.NS','CHOLAHLDNG.NS','KOTAKBANK.NS','ICICIBANK.NS','HDFCLIFE.NS','BAJAJHLDNG.NS','AXISBANK.NS','360ONE.NS','INDUSINDBK.NS','IIFL.NS','PFC.NS','CDSL.NS','IEX.NS','KARURVYSYA.NS','RECLTD.NS','UNIONBANK.NS','CREDITACC.NS','SBIN.NS','BAJFINANCE.NS','IDFCFIRSTB.NS','HUDCO.NS','IREDA.NS','IFCI.NS','IRFC.NS','BSE.NS','HDFCAMC.NS'],
+# --- बाकी sectors नीचे वैसे ही paste करो ---
 }
 
-# ---------------- LIVE CLOCK (NO FLIP) ----------------
-st.markdown("""
-<div style="text-align:center">
-<h1>🚀 LIVE SECTOR DASHBOARD</h1>
-<h3 id="clock" style="color:#FFD700;"></h3>
-</div>
-
-<script>
-function updateClock() {
-    const now = new Date();
-    const options = { 
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric', 
-        month: 'short', 
-        day: '2-digit',
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit'
-    };
-    document.getElementById("clock").innerHTML =
-        now.toLocaleString("en-IN", options) + " IST";
-}
-setInterval(updateClock, 1000);
-updateClock();
-</script>
-""", unsafe_allow_html=True)
-
-# ---------------- MINUTE SYNC LOGIC ----------------
+# --------- TIME ----------
 ist = pytz.timezone("Asia/Kolkata")
 now = datetime.now(ist)
+time_str = now.strftime("%d-%b-%Y | %H:%M IST")
 
-if "last_minute" not in st.session_state:
-    st.session_state.last_minute = -1
-    st.session_state.cached_df = pd.DataFrame()
+st.markdown(f"""
+<div style="background:black;padding:15px;text-align:center">
+<h2 style="color:white;">🚀 LIVE 300 STOCK SECTOR DASHBOARD</h2>
+<h4 style="color:gold;">{time_str}</h4>
+</div>
+""", unsafe_allow_html=True)
 
-if now.minute != st.session_state.last_minute:
+# --------- SYMBOL LIST ----------
+symbols = []
+for stocks in sector_map.values():
+    symbols.extend(stocks)
 
-    symbols = []
-    for stocks in sector_map.values():
-        symbols.extend(stocks)
+# --------- DOWNLOAD ----------
+data = yf.download(symbols, period="1d", interval="1m", progress=False, threads=False)
 
-    data = yf.download(
-        symbols,
-        period="1d",
-        interval="1m",
-        progress=False,
-        threads=False
-    )
+if data.empty:
+    st.error("Market data not available")
+    st.stop()
 
-    if not data.empty:
+close = data["Close"]
 
-        close = data["Close"]
+open_price = close.iloc[0]
+current_price = close.iloc[-1]
+day_change = ((current_price - open_price) / open_price) * 100
 
-        # LAST CLOSED CANDLE
-        last_close = close.iloc[-2]
-        prev_close = close.iloc[-3]
+# --------- CALC ----------
+results = []
 
-        pct_change = ((last_close - prev_close) / prev_close) * 100
+for sector, stocks in sector_map.items():
+    sector_data = day_change[stocks]
+    avg = sector_data.mean()
+    green = (sector_data > 0).sum()
+    red = (sector_data < 0).sum()
+    green_pct = (green / len(stocks)) * 100
+    strength = (avg * 5) + (green_pct * 3)
 
-        results = []
+    results.append([
+        sector,
+        round(avg,2),
+        green,
+        red,
+        round(green_pct,1),
+        round(strength,2)
+    ])
 
-        for sector, stocks in sector_map.items():
-            sector_data = pct_change[stocks]
-            avg = sector_data.mean()
-            green = (sector_data > 0).sum()
-            red = (sector_data < 0).sum()
+df = pd.DataFrame(results, columns=[
+    "Sector","Avg %","Green","Red","Green %","Strength"
+]).sort_values("Strength", ascending=False)
 
-            results.append({
-                "Sector": sector,
-                "Avg %": round(avg, 2),
-                "Green": int(green),
-                "Red": int(red)
-            })
+st.dataframe(df, use_container_width=True)
 
-        df = pd.DataFrame(results).sort_values("Avg %", ascending=False)
-
-        st.session_state.cached_df = df
-        st.session_state.last_minute = now.minute
-
-# ---------------- DISPLAY TABLE ----------------
-if not st.session_state.cached_df.empty:
-    st.dataframe(
-        st.session_state.cached_df,
-        use_container_width=True
-    )
-
-st.caption("✔ Data updates automatically every new minute (last closed candle)")
+st.caption("✔ 300 Stocks | Fixed Sector Mapping | Stable Cloud Version")
